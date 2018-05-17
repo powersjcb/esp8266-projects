@@ -1,33 +1,31 @@
-// Simple NeoPixel test.  Lights just a few pixels at a time so a
-// 1m strip can safely be powered from Arduino 5V pin.  Arduino
-// may nonetheless hiccup when LEDs are first connected and not
-// accept code.  So upload code first, unplug USB, connect pixels
-// to GND FIRST, then +5V and digital pin 6, then re-plug USB.
-// A working strip will show a few pixels moving down the line,
-// cycling between red, green and blue.  If you get no response,
-// might be connected to wrong end of strip (the end wires, if
-// any, are no indication -- look instead for the data direction
-// arrows printed on the strip).
+#define FASTLED_ALLOW_INTERRUPTS 0
+#define FASTLED_ESP8266_RAW_PIN_ORDER
+#define FASTLED_ESP8266_NODEMCU_PIN_ORDER
+#define FASTLED_ESP8266_D1_PIN_ORDER
+#include <FastLED.h>
 
-#include <Adafruit_NeoPixel.h>
 
-#define PIN 5
-#define N_LEDS 2
+#define PIN 12
+#define N_LEDS 144
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(N_LEDS, PIN, NEO_GRB + NEO_KHZ800);
+
+CRGB leds[N_LEDS];
 
 void setup() {
-  strip.begin();
+  Serial.begin(9600);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5,1500); 
+  FastLED.addLeds<NEOPIXEL, PIN>(leds, N_LEDS);
 }
 
 void loop() {
-  blink(strip.Color(20, 0, 0)); // Red
-  blink(strip.Color(0, 20, 0)); // Green
-  blink(strip.Color(0, 0, 20)); // Blue
-}
-
-static void blink(uint32_t c) {
-    strip.setPixelColor(0, c); // Draw new pixel
-    strip.setPixelColor(1, c); // Draw new pixel
-    strip.show();
+  static uint8_t hue_position = 0;
+  
+  for (uint8_t i=0; i < N_LEDS; i++) {
+    leds[i] = CHSV(hue_position+i, 20, 20);
+  }
+  
+  hue_position = hue_position + 1;
+  
+  FastLED.show();
+  delay(10);
 }
