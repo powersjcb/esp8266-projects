@@ -6,6 +6,7 @@
 #include <OSCMessage.h>
 #include <OSCBundle.h>
 #include <OSCData.h>
+#include "MemoryFree.h"
 
 WiFiUDP Udp;
 const unsigned int localPort = 8888;        // local port to listen for UDP packets (here's where we send the packets)
@@ -14,6 +15,7 @@ OSCErrorCode error;
 
 #include <FastLED.h>
 #include <movingAvg.h>
+#include "RollingLinearRegression.h"
 
 #define LED_PIN 2 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
 #define DATA_PIN    12
@@ -27,12 +29,9 @@ CRGB leds[NUM_LEDS];
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
 
-unsigned short period = 2;
-int last_window = 0;
-int window_size = 5; // milliseconds
-double red, green, blue;
-
-movingAvg ave_x(50), ave_y(50), ave_z(50);
+RollingLinearRegression yaw(50);
+RollingLinearRegression pitch(50);
+RollingLinearRegression roll(50);
 
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
@@ -73,6 +72,7 @@ Quaternion qu;           // [w, x, y, z]         quaternion container
 VectorFloat gravity;    // [x, y, z]            gravity vector
 
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
+unsigned long currentTime;
 
 #define INTERRUPT_PIN 15 // use pin 15 on ESP8266
 
@@ -90,9 +90,6 @@ void led_setup()
 {
   FastLED.addLeds<LED_TYPE,DATA_PIN,CLK_PIN,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
   FastLED.setBrightness(BRIGHTNESS);
-  ave_x.begin();
-  ave_y.begin();
-  ave_z.begin(); 
 }
 
 void mpu_setup()
@@ -157,21 +154,14 @@ void wifi_setup(void)
   IPAddress local_IP(192,168,4,22);
   IPAddress gateway(192,168,4,9);
   IPAddress subnet(255,255,255,0);
-
-  Serial.print("Setting soft-AP configuration ... ");
   Serial.println(WiFi.softAPConfig(local_IP, gateway, subnet) ? "Ready" : "Failed!");
-
-  Serial.print("Setting soft-AP ... ");
   Serial.println(WiFi.softAP("ESPsoftAP_01") ? "Ready" : "Failed!");
-
-  Serial.print("Soft-AP IP address = ");
   Serial.println(WiFi.softAPIP());
 }
 
 void setup(void)
 {
   Serial.begin(115200);
-  Serial.println(F("\nOrientation Sensor OSC output")); Serial.println();
   mpu_setup();
   led_setup();
   wifi_setup();
@@ -246,13 +236,18 @@ void nextPattern()
 }
 
 void led_loop() {
-  unsigned long current_time = millis();
+  currentTime = millis();
   gPatterns[gCurrentPatternNumber]();
-  if (current_time > 2000) {
-    FastLED.show();
+  if (currentTime > 2000) {
+      FastLED.show();
   }
-  gHue = (ypr[0] + ypr[1]/2.0) * 255; // slowly cycle the "base color" through the rainbow
-//  Serial.println(gHue);
+  if (roll.finishedTraining() && yaw.finishedTraining() && pitch.finishedTraining()) {
+      float predictedRoll = roll.predict(currentTime);
+      float predictedYaw = yaw.predict(currentTime);
+      Serial.println(predictedRoll);
+      gHue = constrain((predictedYaw + predictedRoll / 2) * 255, 0, 255);
+  }
+
   EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 }
 
@@ -293,16 +288,32 @@ void mpu_loop()
     
     // display quaternion values in easy matrix form: w x y z
     mpu.dmpGetQuaternion(&qu, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &qu);
     mpu.dmpGetYawPitchRoll(ypr, &qu, &gravity);
+
+    currentTime = millis();
+    if (!isnan(ypr[0])) {
+      yaw.observe(currentTime, ypr[0]);
+    } else {
+      Serial.println("invalid imu output - yaw");
+    }
+    if (!isnan(ypr[1])) {
+      pitch.observe(currentTime, ypr[1]);
+    } else {
+      Serial.println("invalid imu output - pitch");
+    }
+    if (!isnan(ypr[2])) {
+      roll.observe(currentTime, ypr[2]);
+    } else {
+      Serial.println("invalid imu output - roll");
+    }
   }
 }
 
 void loop(void)
 {
-  led_loop();
+  EVERY_N_MILLISECONDS(50) {led_loop();}
   mpu_loop();
-  wifi_loop();
+//  wifi_loop();
 }
 
 

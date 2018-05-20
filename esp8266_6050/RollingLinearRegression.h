@@ -1,16 +1,16 @@
-class RollingLinearRegression {
-    public:
-        RollingLinearRegression(int bufferSize);
-        void observe(unsigned long time, double value);
-        double predict(unsigned long time);
-    private:
-        int bufferSize;
-        int observationCount;
-        unsigned long bufferTime[];
-        double bufferValue[];
-        unsigned long sumX = 0;
-        unsigned long sumX2 = 0;
-        double sumY = 0;
-        double sumY2 = 0;
-        double sumXY = 0;
+struct RollingLinearRegression {
+    bool finishedTraining(void);
+    int bufferSize;
+    int observationCount = 0;
+    float bufferTime[];
+    float bufferValue[];
+    float sumX;
+    float sumX2;
+    float sumY;
+    float sumY2;
+    float sumXY;
+    RollingLinearRegression(int size);
+    void observe(unsigned long t, float value);
+    float predict(unsigned long t);
+
 };
