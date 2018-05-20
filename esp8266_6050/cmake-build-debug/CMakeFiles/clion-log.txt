@@ -1,10 +1,14 @@
 /Applications/CLion.app/Contents/bin/cmake/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /Users/powersjcb/workspace/projects/esp8266-firmware/esp8266_6050
-CMake Error at CMakeLists.txt:4 (project):
-  project PROJECT called with incorrect number of arguments
-
-
-CMake Error at CMakeLists.txt:15 (generate_arduino_firmware):
-  Unknown CMake command "generate_arduino_firmware".
+-- The C compiler identification is GNU 7.3.0
+-- The CXX compiler identification is GNU 7.3.0
+CMake Error at arduino-cmake/cmake/Platform/Initialization/DetectVersion.cmake:22 (message):
+  Couldn't find SDK's version file, aborting.
+Call Stack (most recent call first):
+  arduino-cmake/cmake/Platform/Initialization/Initializer.cmake:11 (include)
+  arduino-cmake/cmake/Platform/Arduino.cmake:28 (include)
+  /Applications/CLion.app/Contents/bin/cmake/share/cmake-3.10/Modules/CMakeSystemSpecificInformation.cmake:26 (include)
+  CMakeLists.txt:7 (project)
 
 
 -- Configuring incomplete, errors occurred!
+See also "/Users/powersjcb/workspace/projects/esp8266-firmware/esp8266_6050/cmake-build-debug/CMakeFiles/CMakeOutput.log".
