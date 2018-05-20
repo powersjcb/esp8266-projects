@@ -1,0 +1,25 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[dev-packages]
+
+[packages]
+matplotlib = "==2.1.0"
+numpy = "==1.13.3"
+olefile = "==0.44"
+opencv-python = "==3.3.0.10"
+pyparsing = "==2.2.0"
+python-dateutil = "==2.6.1"
+pytz = "==2017.3"
+scipy = "==1.0.0"
+six = "==1.11.0"
+"subprocess32" = "==3.2.7"
+"backports.functools_lru_cache" = "==1.4"
+Cycler = "==0.10.0"
+Pillow = "==4.3.0"
+python-osc = "*"
+
+[requires]
+python_version = "3.6"

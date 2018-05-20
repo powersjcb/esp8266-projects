@@ -24,7 +24,7 @@ CRGB leds[NUM_LEDS_PER_STRIP];
 #endif
 
 
-MPU6050 mpu;
+MPU6050 mpu(0x68);
 
 // setup mpu
 bool dmpReady = false;  // set true if DMP init was successful
@@ -107,6 +107,7 @@ void loop() {
   unsigned long current_time = millis();
   while (!mpuInterrupt && fifoCount < packetSize) {
     // maybe do some interpolation
+    yield();
   }
 
   // reset interrupt flag and get INT_STATUS byte

@@ -1,0 +1,10 @@
+/Applications/CLion.app/Contents/bin/cmake/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /Users/powersjcb/workspace/projects/esp8266-firmware/esp8266_6050
+CMake Error at CMakeLists.txt:4 (project):
+  project PROJECT called with incorrect number of arguments
+
+
+CMake Error at CMakeLists.txt:15 (generate_arduino_firmware):
+  Unknown CMake command "generate_arduino_firmware".
+
+
+-- Configuring incomplete, errors occurred!

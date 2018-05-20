@@ -40,6 +40,49 @@ THE SOFTWARE.
 
 */
 
+
+#define FASTLED_INTERRUPT_RETRY_COUNT 1
+#define FASTLED_ALLOW_INTERRUPTS 0
+
+#include <ESP8266WiFi.h>
+#include <WiFiUdp.h>
+#include <OSCMessage.h>
+#include <OSCBundle.h>
+#include <OSCData.h>
+
+char ssid[] = "LEDController";          // your network SSID (name)
+char pass[] = "";                    // your network password
+IPAddress apIP(192, 168, 1, 111);
+IPAddress apGateway(192, 168, 1, 1);
+IPAddress subnet(255, 255, 255, 0);
+
+WiFiUDP Udp;
+const unsigned int localPort = 8888;        // local port to listen for UDP packets (here's where we send the packets)
+OSCErrorCode error;
+
+
+#include <FastLED.h>
+#include <movingAvg.h>
+
+#define LED_PIN 2 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
+#define DATA_PIN    12
+#define CLK_PIN   14
+#define LED_TYPE    APA102
+#define COLOR_ORDER BGR
+#define NUM_LEDS    29
+#define BRIGHTNESS 200
+CRGB leds[NUM_LEDS];
+
+#define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
+
+
+unsigned short period = 2;
+int last_window = 0;
+int window_size = 5; // milliseconds
+double red, green, blue;
+
+movingAvg ave_x(50), ave_y(50), ave_z(50);
+
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
 #include "I2Cdev.h"
@@ -57,7 +100,7 @@ THE SOFTWARE.
 // specific I2C addresses may be passed as a parameter here
 // AD0 low = 0x68 (default for SparkFun breakout and InvenSense evaluation board)
 // AD0 high = 0x69
-MPU6050 mpu;
+MPU6050 mpu(0x68);
 //MPU6050 mpu(0x69); // <-- use for AD0 high
 
 /* =========================================================================
@@ -75,7 +118,7 @@ uint16_t fifoCount;     // count of all bytes currently in FIFO
 uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 // orientation/motion vars
-Quaternion q;           // [w, x, y, z]         quaternion container
+Quaternion qu;           // [w, x, y, z]         quaternion container
 VectorInt16 aa;         // [x, y, z]            accel sensor measurements
 VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
 VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
@@ -83,14 +126,13 @@ VectorFloat gravity;    // [x, y, z]            gravity vector
 #ifdef OUTPUT_READABLE_EULER
 float euler[3];         // [psi, theta, phi]    Euler angle container
 #endif
-#ifdef OUTPUT_READABLE_YAWPITCHROLL
+
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
-#endif
+
 
 // uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
 // quaternion components in a [w, x, y, z] format (not best for parsing
 // on a remote host such as Processing or something though)
-//#define OUTPUT_READABLE_QUATERNION
 
 // uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
 // (in degrees) calculated from the quaternions coming from the FIFO.
@@ -103,7 +145,6 @@ float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gra
 // from the FIFO. Note this also requires gravity vector calculations.
 // Also note that yaw/pitch/roll angles suffer from gimbal lock (for
 // more info, see: http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_YAWPITCHROLL
 
 // uncomment "OUTPUT_READABLE_REALACCEL" if you want to see acceleration
 // components with gravity removed. This acceleration reference frame is
@@ -133,6 +174,15 @@ const char DEVICE_NAME[] = "mpu6050";
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
 void dmpDataReady() {
     mpuInterrupt = true;
+}
+
+void led_setup()
+{
+  FastLED.addLeds<LED_TYPE,DATA_PIN,CLK_PIN,COLOR_ORDER>(leds, NUM_LEDS).setCorrection(TypicalLEDStrip);
+  FastLED.setBrightness(BRIGHTNESS);
+  ave_x.begin();
+  ave_y.begin();
+  ave_z.begin(); 
 }
 
 void mpu_setup()
@@ -192,11 +242,137 @@ void mpu_setup()
   }
 }
 
+void wifi_setup(void)
+{
+  IPAddress local_IP(192,168,4,22);
+  IPAddress gateway(192,168,4,9);
+  IPAddress subnet(255,255,255,0);
+
+  Serial.print("Setting soft-AP configuration ... ");
+  Serial.println(WiFi.softAPConfig(local_IP, gateway, subnet) ? "Ready" : "Failed!");
+
+  Serial.print("Setting soft-AP ... ");
+  Serial.println(WiFi.softAP("ESPsoftAP_01") ? "Ready" : "Failed!");
+
+  Serial.print("Soft-AP IP address = ");
+  Serial.println(WiFi.softAPIP());
+}
+
 void setup(void)
 {
   Serial.begin(115200);
   Serial.println(F("\nOrientation Sensor OSC output")); Serial.println();
   mpu_setup();
+  led_setup();
+  wifi_setup();
+}
+
+
+volatile bool udpStarted = false;
+void updateConfig(OSCMessage &msg) 
+{
+  Serial.print("osc message: ");
+  Serial.println(msg.getInt(0));
+}
+
+void wifi_loop(void)
+{
+  if (!udpStarted) {
+    Udp.begin(localPort);
+    Serial.println("udp setup finished");
+    udpStarted = true;
+  }
+
+  if (udpStarted) {
+    OSCBundle bundle;
+    int size = Udp.parsePacket();
+    if (size > 0) {
+      while (size--) {
+        bundle.fill(Udp.read());
+      }
+      if (!bundle.hasError()) {
+        bundle.dispatch("/led", updateConfig);
+      } else {
+        error = bundle.getError();
+        Serial.print("error: ");
+        Serial.println(error);
+      }
+    }
+  }
+}
+
+
+
+uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
+uint8_t gHue = 0; // rotating "base color" used by many of the patterns
+
+
+void rainbow() 
+{
+  // FastLED's built-in rainbow generator
+  fill_rainbow( leds, NUM_LEDS, gHue, 7);
+}
+
+
+void rainbowWithGlitter() 
+{
+  // built-in FastLED rainbow, plus some random sparkly glitter
+  rainbow();
+  addGlitter(80);
+}
+
+void addGlitter( fract8 chanceOfGlitter) 
+{
+  if( random8() < chanceOfGlitter) {
+    leds[ random16(NUM_LEDS) ] += CRGB::White;
+  }
+}
+
+void confetti() 
+{
+  // random colored speckles that blink in and fade smoothly
+  fadeToBlackBy( leds, NUM_LEDS, 10);
+  int pos = random16(NUM_LEDS);
+  leds[pos] += CHSV( gHue + random8(64), 200, 255);
+}
+
+void sinelon()
+{
+  // a colored dot sweeping back and forth, with fading trails
+  fadeToBlackBy( leds, NUM_LEDS, 20);
+  int pos = beatsin16( 13, 0, NUM_LEDS-1 );
+  leds[pos] += CHSV( gHue, 255, 192);
+}
+
+
+void juggle() {
+  // eight colored dots, weaving in and out of sync with each other
+  fadeToBlackBy( leds, NUM_LEDS, 20);
+  byte dothue = 0;
+  for( int i = 0; i < 8; i++) {
+    leds[beatsin16( i+7, 0, NUM_LEDS-1 )] |= CHSV(dothue, 200, 255);
+    dothue += 32;
+  }
+}
+
+typedef void (*SimplePatternList[])();
+SimplePatternList gPatterns = { rainbow };
+
+void nextPattern()
+{
+  // add one to the current pattern number, and wrap around at the end
+  gCurrentPatternNumber = (gCurrentPatternNumber + 1) % ARRAY_SIZE( gPatterns);
+}
+
+void led_loop() {
+  unsigned long current_time = millis();
+  gPatterns[gCurrentPatternNumber]();
+  if (current_time > 2000) {
+    FastLED.show();
+  }
+  gHue = (ypr[0] + ypr[1]/2.0) * 255; // slowly cycle the "base color" through the rainbow
+//  Serial.println(gHue);
+  EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
 }
 
 void mpu_loop()
@@ -205,7 +381,9 @@ void mpu_loop()
   if (!dmpReady) return;
 
   // wait for MPU interrupt or extra packet(s) available
-  if (!mpuInterrupt && fifoCount < packetSize) return;
+  if (!mpuInterrupt && fifoCount < packetSize) { 
+    yield();
+  };
 
   // reset interrupt flag and get INT_STATUS byte
   mpuInterrupt = false;
@@ -231,93 +409,11 @@ void mpu_loop()
     // track FIFO count here in case there is > 1 packet available
     // (this lets us immediately read more without waiting for an interrupt)
     fifoCount -= packetSize;
-
-#ifdef OUTPUT_READABLE_QUATERNION
+    
     // display quaternion values in easy matrix form: w x y z
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    Serial.print("quat\t");
-    Serial.print(q.w);
-    Serial.print("\t");
-    Serial.print(q.x);
-    Serial.print("\t");
-    Serial.print(q.y);
-    Serial.print("\t");
-    Serial.println(q.z);
-#endif
-
-#ifdef OUTPUT_TEAPOT_OSC
-#ifndef OUTPUT_READABLE_QUATERNION
-    // display quaternion values in easy matrix form: w x y z
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-#endif
-    // Send OSC message
-    OSCMessage msg("/imuquat");
-    msg.add((float)q.w);
-    msg.add((float)q.x);
-    msg.add((float)q.y);
-    msg.add((float)q.z);
-
-    Udp.beginPacket(outIp, outPort);
-    msg.send(Udp);
-    Udp.endPacket();
-
-    msg.empty();
-#endif
-
-#ifdef OUTPUT_READABLE_EULER
-    // display Euler angles in degrees
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetEuler(euler, &q);
-    Serial.print("euler\t");
-    Serial.print(euler[0] * 180/M_PI);
-    Serial.print("\t");
-    Serial.print(euler[1] * 180/M_PI);
-    Serial.print("\t");
-    Serial.println(euler[2] * 180/M_PI);
-#endif
-
-#ifdef OUTPUT_READABLE_YAWPITCHROLL
-    // display Euler angles in degrees
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-    Serial.print("ypr\t");
-    Serial.print(ypr[0] * 180/M_PI);
-    Serial.print("\t");
-    Serial.print(ypr[1] * 180/M_PI);
-    Serial.print("\t");
-    Serial.println(ypr[2] * 180/M_PI);
-#endif
-
-#ifdef OUTPUT_READABLE_REALACCEL
-    // display real acceleration, adjusted to remove gravity
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetAccel(&aa, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-    Serial.print("areal\t");
-    Serial.print(aaReal.x);
-    Serial.print("\t");
-    Serial.print(aaReal.y);
-    Serial.print("\t");
-    Serial.println(aaReal.z);
-#endif
-
-#ifdef OUTPUT_READABLE_WORLDACCEL
-    // display initial world-frame acceleration, adjusted to remove gravity
-    // and rotated based on known orientation from quaternion
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetAccel(&aa, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetLinearAccel(&aaReal, &aa, &gravity);
-    mpu.dmpGetLinearAccelInWorld(&aaWorld, &aaReal, &q);
-    Serial.print("aworld\t");
-    Serial.print(aaWorld.x);
-    Serial.print("\t");
-    Serial.print(aaWorld.y);
-    Serial.print("\t");
-    Serial.println(aaWorld.z);
-#endif
+    mpu.dmpGetQuaternion(&qu, fifoBuffer);
+    mpu.dmpGetGravity(&gravity, &qu);
+    mpu.dmpGetYawPitchRoll(ypr, &qu, &gravity);
   }
 }
 
@@ -329,5 +425,8 @@ void mpu_loop()
 /**************************************************************************/
 void loop(void)
 {
+  led_loop();
   mpu_loop();
+  wifi_loop();
 }
+
