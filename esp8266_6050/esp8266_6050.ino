@@ -1,46 +1,3 @@
-/* ============================================
-I2Cdev device library code is placed under the MIT license
-Copyright (c) 2012 Jeff Rowberg
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-===============================================
-*/
-
-/* This driver reads quaternion data from the MPU6060 and sends
-   Open Sound Control messages.
-
-  GY-521  NodeMCU
-  MPU6050 devkit 1.0
-  board   Lolin         Description
-  ======= ==========    ====================================================
-  VCC     VU (5V USB)   Not available on all boards so use 3.3V if needed.
-  GND     G             Ground
-  SCL     D1 (GPIO05)   I2C clock
-  SDA     D2 (GPIO04)   I2C data
-  XDA     not connected
-  XCL     not connected
-  AD0     not connected
-  INT     D8 (GPIO15)   Interrupt pin
-
-*/
-
-
 #define FASTLED_INTERRUPT_RETRY_COUNT 1
 #define FASTLED_ALLOW_INTERRUPTS 0
 
@@ -49,12 +6,6 @@ THE SOFTWARE.
 #include <OSCMessage.h>
 #include <OSCBundle.h>
 #include <OSCData.h>
-
-char ssid[] = "LEDController";          // your network SSID (name)
-char pass[] = "";                    // your network password
-IPAddress apIP(192, 168, 1, 111);
-IPAddress apGateway(192, 168, 1, 1);
-IPAddress subnet(255, 255, 255, 0);
 
 WiFiUDP Udp;
 const unsigned int localPort = 8888;        // local port to listen for UDP packets (here's where we send the packets)
@@ -119,60 +70,19 @@ uint8_t fifoBuffer[64]; // FIFO storage buffer
 
 // orientation/motion vars
 Quaternion qu;           // [w, x, y, z]         quaternion container
-VectorInt16 aa;         // [x, y, z]            accel sensor measurements
-VectorInt16 aaReal;     // [x, y, z]            gravity-free accel sensor measurements
-VectorInt16 aaWorld;    // [x, y, z]            world-frame accel sensor measurements
 VectorFloat gravity;    // [x, y, z]            gravity vector
-#ifdef OUTPUT_READABLE_EULER
-float euler[3];         // [psi, theta, phi]    Euler angle container
-#endif
 
 float ypr[3];           // [yaw, pitch, roll]   yaw/pitch/roll container and gravity vector
 
-
-// uncomment "OUTPUT_READABLE_QUATERNION" if you want to see the actual
-// quaternion components in a [w, x, y, z] format (not best for parsing
-// on a remote host such as Processing or something though)
-
-// uncomment "OUTPUT_READABLE_EULER" if you want to see Euler angles
-// (in degrees) calculated from the quaternions coming from the FIFO.
-// Note that Euler angles suffer from gimbal lock (for more info, see
-// http://en.wikipedia.org/wiki/Gimbal_lock)
-//#define OUTPUT_READABLE_EULER
-
-// uncomment "OUTPUT_READABLE_YAWPITCHROLL" if you want to see the yaw/
-// pitch/roll angles (in degrees) calculated from the quaternions coming
-// from the FIFO. Note this also requires gravity vector calculations.
-// Also note that yaw/pitch/roll angles suffer from gimbal lock (for
-// more info, see: http://en.wikipedia.org/wiki/Gimbal_lock)
-
-// uncomment "OUTPUT_READABLE_REALACCEL" if you want to see acceleration
-// components with gravity removed. This acceleration reference frame is
-// not compensated for orientation, so +X is always +X according to the
-// sensor, just without the effects of gravity. If you want acceleration
-// compensated for orientation, us OUTPUT_READABLE_WORLDACCEL instead.
-//#define OUTPUT_READABLE_REALACCEL
-
-// uncomment "OUTPUT_READABLE_WORLDACCEL" if you want to see acceleration
-// components with gravity removed and adjusted for the world frame of
-// reference (yaw is relative to initial orientation, since no magnetometer
-// is present in this case). Could be quite handy in some cases.
-//#define OUTPUT_READABLE_WORLDACCEL
-
-// uncomment "OUTPUT_TEAPOT_OSC" if you want output that matches the
-// format used for the InvenSense teapot demo
-#define OUTPUT_TEAPOT_OSC
-
 #define INTERRUPT_PIN 15 // use pin 15 on ESP8266
 
-const char DEVICE_NAME[] = "mpu6050";
 
 // ================================================================
 // ===               INTERRUPT DETECTION ROUTINE                ===
 // ================================================================
 
 volatile bool mpuInterrupt = false;     // indicates whether MPU interrupt pin has gone high
-void dmpDataReady() {
+void dmpDataReady(void) {
     mpuInterrupt = true;
 }
 
@@ -302,7 +212,6 @@ void wifi_loop(void)
 }
 
 
-
 uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
@@ -312,7 +221,6 @@ void rainbow()
   // FastLED's built-in rainbow generator
   fill_rainbow( leds, NUM_LEDS, gHue, 7);
 }
-
 
 void rainbowWithGlitter() 
 {
@@ -328,35 +236,8 @@ void addGlitter( fract8 chanceOfGlitter)
   }
 }
 
-void confetti() 
-{
-  // random colored speckles that blink in and fade smoothly
-  fadeToBlackBy( leds, NUM_LEDS, 10);
-  int pos = random16(NUM_LEDS);
-  leds[pos] += CHSV( gHue + random8(64), 200, 255);
-}
-
-void sinelon()
-{
-  // a colored dot sweeping back and forth, with fading trails
-  fadeToBlackBy( leds, NUM_LEDS, 20);
-  int pos = beatsin16( 13, 0, NUM_LEDS-1 );
-  leds[pos] += CHSV( gHue, 255, 192);
-}
-
-
-void juggle() {
-  // eight colored dots, weaving in and out of sync with each other
-  fadeToBlackBy( leds, NUM_LEDS, 20);
-  byte dothue = 0;
-  for( int i = 0; i < 8; i++) {
-    leds[beatsin16( i+7, 0, NUM_LEDS-1 )] |= CHSV(dothue, 200, 255);
-    dothue += 32;
-  }
-}
-
 typedef void (*SimplePatternList[])();
-SimplePatternList gPatterns = { rainbow };
+SimplePatternList gPatterns = { rainbow, rainbowWithGlitter };
 
 void nextPattern()
 {
@@ -417,12 +298,6 @@ void mpu_loop()
   }
 }
 
-/**************************************************************************/
-/*
-    Arduino loop function, called once 'setup' is complete (your own code
-    should go here)
-*/
-/**************************************************************************/
 void loop(void)
 {
   led_loop();
@@ -430,3 +305,45 @@ void loop(void)
   wifi_loop();
 }
 
+
+/* ============================================
+I2Cdev device library code is placed under the MIT license
+Copyright (c) 2012 Jeff Rowberg
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+===============================================
+*/
+
+/* This driver reads quaternion data from the MPU6060 and sends
+   Open Sound Control messages.
+
+  GY-521  NodeMCU
+  MPU6050 devkit 1.0
+  board   Lolin         Description
+  ======= ==========    ====================================================
+  VCC     VU (5V USB)   Not available on all boards so use 3.3V if needed.
+  GND     G             Ground
+  SCL     D1 (GPIO05)   I2C clock
+  SDA     D2 (GPIO04)   I2C data
+  XDA     not connected
+  XCL     not connected
+  AD0     not connected
+  INT     D8 (GPIO15)   Interrupt pin
+
+*/

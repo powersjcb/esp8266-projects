@@ -1,14 +1,9 @@
 /Applications/CLion.app/Contents/bin/cmake/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /Users/powersjcb/workspace/projects/esp8266-firmware/esp8266_6050
--- The C compiler identification is GNU 7.3.0
--- The CXX compiler identification is GNU 7.3.0
-CMake Error at arduino-cmake/cmake/Platform/Initialization/DetectVersion.cmake:22 (message):
-  Couldn't find SDK's version file, aborting.
-Call Stack (most recent call first):
-  arduino-cmake/cmake/Platform/Initialization/Initializer.cmake:11 (include)
-  arduino-cmake/cmake/Platform/Arduino.cmake:28 (include)
-  /Applications/CLion.app/Contents/bin/cmake/share/cmake-3.10/Modules/CMakeSystemSpecificInformation.cmake:26 (include)
-  CMakeLists.txt:7 (project)
-
-
--- Configuring incomplete, errors occurred!
-See also "/Users/powersjcb/workspace/projects/esp8266-firmware/esp8266_6050/cmake-build-debug/CMakeFiles/CMakeOutput.log".
+-- Generating esp8266_6050
+-- Generating uno_Wire for library Wire
+-- Generating uno_twi for library twi
+-- Found library Wire needs uno_Wire;uno_twi
+-- Using /usr/local/bin/avr-objcopy for converting firmware image to hex
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /Users/powersjcb/workspace/projects/esp8266-firmware/esp8266_6050/cmake-build-debug
