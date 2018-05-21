@@ -1,21 +1,18 @@
 #define FASTLED_INTERRUPT_RETRY_COUNT 1
 #define FASTLED_ALLOW_INTERRUPTS 0
 
+#include "LinearPredictor.h"
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <OSCMessage.h>
 #include <OSCBundle.h>
 #include <OSCData.h>
-#include "MemoryFree.h"
 
 WiFiUDP Udp;
 const unsigned int localPort = 8888;        // local port to listen for UDP packets (here's where we send the packets)
 OSCErrorCode error;
 
-
 #include <FastLED.h>
-#include <movingAvg.h>
-#include "RollingLinearRegression.h"
 
 #define LED_PIN 2 // (Arduino is 13, Teensy is 11, Teensy++ is 6)
 #define DATA_PIN    12
@@ -23,15 +20,13 @@ OSCErrorCode error;
 #define LED_TYPE    APA102
 #define COLOR_ORDER BGR
 #define NUM_LEDS    29
-#define BRIGHTNESS 200
+#define BRIGHTNESS 100
 CRGB leds[NUM_LEDS];
 
 #define ARRAY_SIZE(A) (sizeof(A) / sizeof((A)[0]))
 
 
-RollingLinearRegression yaw(50);
-RollingLinearRegression pitch(50);
-RollingLinearRegression roll(50);
+LinearPredictor yaw, pitch, roll;
 
 // I2Cdev and MPU6050 must be installed as libraries, or else the .cpp/.h files
 // for both classes must be in the include path of your project
@@ -169,7 +164,7 @@ void setup(void)
 
 
 volatile bool udpStarted = false;
-void updateConfig(OSCMessage &msg) 
+void updateConfig(OSCMessage &msg)
 {
   Serial.print("osc message: ");
   Serial.println(msg.getInt(0));
@@ -206,20 +201,25 @@ uint8_t gCurrentPatternNumber = 0; // Index number of which pattern is current
 uint8_t gHue = 0; // rotating "base color" used by many of the patterns
 
 
-void rainbow() 
+void rainbow()
 {
   // FastLED's built-in rainbow generator
   fill_rainbow( leds, NUM_LEDS, gHue, 7);
 }
 
-void rainbowWithGlitter() 
+void solid()
+{
+  fill_solid(leds, NUM_LEDS, CHSV(gHue, 255, 100));
+}
+
+void rainbowWithGlitter()
 {
   // built-in FastLED rainbow, plus some random sparkly glitter
   rainbow();
   addGlitter(80);
 }
 
-void addGlitter( fract8 chanceOfGlitter) 
+void addGlitter( fract8 chanceOfGlitter)
 {
   if( random8() < chanceOfGlitter) {
     leds[ random16(NUM_LEDS) ] += CRGB::White;
@@ -244,11 +244,16 @@ void led_loop() {
   if (roll.finishedTraining() && yaw.finishedTraining() && pitch.finishedTraining()) {
       float predictedRoll = roll.predict(currentTime);
       float predictedYaw = yaw.predict(currentTime);
-      Serial.println(predictedRoll);
-      gHue = constrain((predictedYaw + predictedRoll / 2) * 255, 0, 255);
-  }
 
-  EVERY_N_SECONDS( 10 ) { nextPattern(); } // change patterns periodically
+      gHue = int((predictedYaw + predictedRoll / 2) * 255) % 255;
+  }
+  EVERY_N_SECONDS( 10 ) {
+      Serial.println(ypr[0]);
+      float predictedYaw = yaw.predict(currentTime);
+
+      Serial.println(predictedYaw);
+//      nextPattern();
+  }
 }
 
 void mpu_loop()
@@ -257,7 +262,7 @@ void mpu_loop()
   if (!dmpReady) return;
 
   // wait for MPU interrupt or extra packet(s) available
-  if (!mpuInterrupt && fifoCount < packetSize) { 
+  if (!mpuInterrupt && fifoCount < packetSize) {
     yield();
   };
 
@@ -285,33 +290,23 @@ void mpu_loop()
     // track FIFO count here in case there is > 1 packet available
     // (this lets us immediately read more without waiting for an interrupt)
     fifoCount -= packetSize;
-    
+
     // display quaternion values in easy matrix form: w x y z
     mpu.dmpGetQuaternion(&qu, fifoBuffer);
+    mpu.dmpGetGravity(&gravity, &qu);
     mpu.dmpGetYawPitchRoll(ypr, &qu, &gravity);
 
     currentTime = millis();
-    if (!isnan(ypr[0])) {
-      yaw.observe(currentTime, ypr[0]);
-    } else {
-      Serial.println("invalid imu output - yaw");
-    }
-    if (!isnan(ypr[1])) {
-      pitch.observe(currentTime, ypr[1]);
-    } else {
-      Serial.println("invalid imu output - pitch");
-    }
-    if (!isnan(ypr[2])) {
-      roll.observe(currentTime, ypr[2]);
-    } else {
-      Serial.println("invalid imu output - roll");
-    }
+    yaw.observe(currentTime, ypr[0]);
+    pitch.observe(currentTime, ypr[1]);
+    roll.observe(currentTime, ypr[2]);
   }
 }
 
+
 void loop(void)
 {
-  EVERY_N_MILLISECONDS(50) {led_loop();}
+  EVERY_N_MILLISECONDS(5) {led_loop();}
   mpu_loop();
 //  wifi_loop();
 }
