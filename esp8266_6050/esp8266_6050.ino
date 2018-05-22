@@ -7,6 +7,7 @@
 #include <OSCMessage.h>
 #include <OSCBundle.h>
 #include <OSCData.h>
+#include "NBLogo.h"
 
 WiFiUDP Udp;
 const unsigned int localPort = 8888;        // local port to listen for UDP packets (here's where we send the packets)
